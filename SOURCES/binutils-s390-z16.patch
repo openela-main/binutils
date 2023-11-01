@@ -1,0 +1,53 @@
+diff -rup binutils.orig/gas/config/tc-s390.c binutils-2.30/gas/config/tc-s390.c
+--- binutils.orig/gas/config/tc-s390.c	2022-04-11 09:54:43.234516094 +0100
++++ binutils-2.30/gas/config/tc-s390.c	2022-04-11 09:55:31.670168952 +0100
+@@ -292,9 +292,9 @@ s390_parse_cpu (const char *         arg
+       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX },
+     { STRING_COMMA_LEN ("z14"), STRING_COMMA_LEN ("arch12"),
+       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX },
+-    { STRING_COMMA_LEN (""), STRING_COMMA_LEN ("arch13"),
++    { STRING_COMMA_LEN ("z15"), STRING_COMMA_LEN ("arch13"),
+       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX },
+-    { STRING_COMMA_LEN (""), STRING_COMMA_LEN ("arch14"),
++    { STRING_COMMA_LEN ("z16"), STRING_COMMA_LEN ("arch14"),
+       S390_INSTR_FLAG_HTM | S390_INSTR_FLAG_VX }
+   };
+   static struct
+diff -rup binutils.orig/gas/doc/c-s390.texi binutils-2.30/gas/doc/c-s390.texi
+--- binutils.orig/gas/doc/c-s390.texi	2022-04-11 09:54:43.236516079 +0100
++++ binutils-2.30/gas/doc/c-s390.texi	2022-04-11 09:56:40.709674135 +0100
+@@ -18,7 +18,7 @@ and eleven chip levels. The architecture
+ Architecture (ESA) and the newer z/Architecture mode. The chip levels
+ are g5 (or arch3), g6, z900 (or arch5), z990 (or arch6), z9-109, z9-ec
+ (or arch7), z10 (or arch8), z196 (or arch9), zEC12 (or arch10), z13
+-(or arch11), z14 (or arch12), z15 (or arch13), or arch14.
++(or arch11), z14 (or arch12), z15 (or arch13), or z16 (or arch14).
+ 
+ @menu
+ * s390 Options::                Command-line Options.
+@@ -72,7 +72,7 @@ are recognized:
+ @code{z13} (or @code{arch11}),
+ @code{z14} (or @code{arch12}),
+ @code{z15} (or @code{arch13}), and
+-@code{arch14}.
++@code{z16} (or @code{arch14}).
+ 
+ Assembling an instruction that is not supported on the target
+ processor results in an error message.
+diff -rup binutils.orig/opcodes/s390-mkopc.c binutils-2.30/opcodes/s390-mkopc.c
+--- binutils.orig/opcodes/s390-mkopc.c	2022-04-11 09:54:43.491514252 +0100
++++ binutils-2.30/opcodes/s390-mkopc.c	2022-04-11 09:58:24.228932192 +0100
+@@ -377,9 +377,11 @@ main (void)
+       else if (strcmp (cpu_string, "z14") == 0
+ 	       || strcmp (cpu_string, "arch12") == 0)
+ 	min_cpu = S390_OPCODE_ARCH12;
+-      else if (strcmp (cpu_string, "arch13") == 0)
++      else if ((strcmp (cpu_string, "z15") == 0
++		|| strcmp (cpu_string, "arch13") == 0))
+ 	min_cpu = S390_OPCODE_ARCH13;
+-      else if (strcmp (cpu_string, "arch14") == 0)
++      else if ((strcmp (cpu_string, "z16") == 0
++		|| strcmp (cpu_string, "arch14") == 0))
+ 	min_cpu = S390_OPCODE_ARCH14;
+       else {
+ 	fprintf (stderr, "Couldn't parse cpu string %s\n", cpu_string);
