@@ -1,0 +1,802 @@
+diff -rup binutils.nickc/bfd/dwarf2.c binutils-2.30/bfd/dwarf2.c
+--- binutils.nickc/bfd/dwarf2.c	2023-07-18 10:02:02.953147381 +0100
++++ binutils-2.30/bfd/dwarf2.c	2023-07-18 10:05:41.826211729 +0100
+@@ -161,6 +161,12 @@ struct dwarf2_debug
+   /* Length of the loaded .debug_ranges section.  */
+   bfd_size_type dwarf_ranges_size;
+ 
++  /* Pointer to the .debug_rnglists section loaded into memory.  */
++  bfd_byte *dwarf_rnglists_buffer;
++
++  /* Length of the loaded .debug_rnglists section.  */
++  bfd_size_type dwarf_rnglists_size;
++
+   /* If the most recent call to bfd_find_nearest_line was given an
+      address in an inlined function, preserve a pointer into the
+      calling chain for subsequent calls to bfd_find_inliner_info to
+@@ -328,6 +334,7 @@ const struct dwarf_debug_section dwarf_d
+   { ".debug_pubnames",		".zdebug_pubnames" },
+   { ".debug_pubtypes",		".zdebug_pubtypes" },
+   { ".debug_ranges",		".zdebug_ranges" },
++  { ".debug_rnglists",		".zdebug_rnglist" },
+   { ".debug_static_func",	".zdebug_static_func" },
+   { ".debug_static_vars",	".zdebug_static_vars" },
+   { ".debug_str",		".zdebug_str", },
+@@ -361,6 +368,7 @@ enum dwarf_debug_section_enum
+   debug_pubnames,
+   debug_pubtypes,
+   debug_ranges,
++  debug_rnglists,
+   debug_static_func,
+   debug_static_vars,
+   debug_str,
+@@ -524,10 +532,8 @@ read_section (bfd *	      abfd,
+ 	      bfd_byte **     section_buffer,
+ 	      bfd_size_type * section_size)
+ {
+-  asection *msec;
+   const char *section_name = sec->uncompressed_name;
+   bfd_byte *contents = *section_buffer;
+-  bfd_size_type amt;
+ 
+   /* The section may have already been read.  */
+   if (contents == NULL)
+@@ -1097,8 +1103,23 @@ read_abbrevs (bfd *abfd, bfd_uint64_t of
+ static inline bfd_boolean
+ is_str_attr (enum dwarf_form form)
+ {
+-  return (form == DW_FORM_string || form == DW_FORM_strp
+-	  || form == DW_FORM_line_strp || form == DW_FORM_GNU_strp_alt);
++  return (form == DW_FORM_string
++	  || form == DW_FORM_strp
++	  || form == DW_FORM_strx
++	  || form == DW_FORM_strx1
++	  || form == DW_FORM_strx2
++	  || form == DW_FORM_strx3
++	  || form == DW_FORM_strx4
++	  || form == DW_FORM_line_strp
++	  || form == DW_FORM_GNU_strp_alt);
++}
++
++static const char *
++read_indexed_string (bfd_uint64_t index ATTRIBUTE_UNUSED,
++		     struct comp_unit * unit ATTRIBUTE_UNUSED)
++{
++  /* FIXME: Add support for indexed strings.  */
++  return "<indexed strings not yet supported>";
+ }
+ 
+ /* Read and fill in the value of attribute ATTR as described by FORM.
+@@ -1129,6 +1150,9 @@ read_attribute_value (struct attribute *
+ 
+   switch (form)
+     {
++    case DW_FORM_flag_present:
++      attr->u.val = 1;
++      break;
+     case DW_FORM_ref_addr:
+       /* DW_FORM_ref_addr is an address in DWARF2, and an offset in
+ 	 DWARF3.  */
+@@ -1174,15 +1198,32 @@ read_attribute_value (struct attribute *
+       info_ptr = read_n_bytes (info_ptr, info_ptr_end, blk);
+       attr->u.blk = blk;
+       break;
++    case DW_FORM_ref1:
++    case DW_FORM_flag:
++    case DW_FORM_data1:
++    case DW_FORM_addrx1:
++      attr->u.val = read_1_byte (abfd, info_ptr, info_ptr_end);
++      info_ptr += 1;
++      break;
+     case DW_FORM_data2:
++    case DW_FORM_ref2:
+       attr->u.val = read_2_bytes (abfd, info_ptr, info_ptr_end);
+       info_ptr += 2;
+       break;
++    case DW_FORM_addrx3:
++      attr->u.val = read_4_bytes (abfd, info_ptr, info_ptr_end);
++      attr->u.val &= 0xffffff;
++      info_ptr += 3;
++      break;
++    case DW_FORM_ref4:
+     case DW_FORM_data4:
++    case DW_FORM_addrx4:
+       attr->u.val = read_4_bytes (abfd, info_ptr, info_ptr_end);
+       info_ptr += 4;
+       break;
+     case DW_FORM_data8:
++    case DW_FORM_ref8:
++    case DW_FORM_ref_sig8:
+       attr->u.val = read_8_bytes (abfd, info_ptr, info_ptr_end);
+       info_ptr += 8;
+       break;
+@@ -1202,6 +1243,33 @@ read_attribute_value (struct attribute *
+       attr->u.str = read_alt_indirect_string (unit, info_ptr, info_ptr_end, &bytes_read);
+       info_ptr += bytes_read;
+       break;
++    case DW_FORM_strx1:
++      attr->u.val = read_1_byte (abfd, info_ptr, info_ptr_end);
++      info_ptr += 1;
++      attr->u.str = (char *) read_indexed_string (attr->u.val, unit);
++      break;
++    case DW_FORM_strx2:
++      attr->u.val = read_2_bytes (abfd, info_ptr, info_ptr_end);
++      info_ptr += 2;
++      attr->u.str = (char *) read_indexed_string (attr->u.val, unit);
++      break;
++    case DW_FORM_strx3:
++      attr->u.val = read_4_bytes (abfd, info_ptr, info_ptr_end);
++      info_ptr += 3;
++      attr->u.val &= 0xffffff;
++      attr->u.str = (char *) read_indexed_string (attr->u.val, unit);
++      break;
++    case DW_FORM_strx4:
++      attr->u.val = read_4_bytes (abfd, info_ptr, info_ptr_end);
++      info_ptr += 4;
++      attr->u.str = (char *) read_indexed_string (attr->u.val, unit);
++      break;
++    case DW_FORM_strx:
++      attr->u.val = _bfd_safe_read_leb128 (abfd, info_ptr, &bytes_read,
++					 FALSE, info_ptr_end);
++      info_ptr += bytes_read;
++      attr->u.str = (char *) read_indexed_string (attr->u.val, unit);
++      break;
+     case DW_FORM_exprloc:
+     case DW_FORM_block:
+       amt = sizeof (struct dwarf_block);
+@@ -1224,48 +1292,19 @@ read_attribute_value (struct attribute *
+       info_ptr = read_n_bytes (info_ptr, info_ptr_end, blk);
+       attr->u.blk = blk;
+       break;
+-    case DW_FORM_data1:
+-      attr->u.val = read_1_byte (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 1;
+-      break;
+-    case DW_FORM_flag:
+-      attr->u.val = read_1_byte (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 1;
+-      break;
+-    case DW_FORM_flag_present:
+-      attr->u.val = 1;
+-      break;
+     case DW_FORM_sdata:
+       attr->u.sval = _bfd_safe_read_leb128 (abfd, info_ptr, &bytes_read,
+ 					    TRUE, info_ptr_end);
+       info_ptr += bytes_read;
+       break;
+-    case DW_FORM_udata:
+-      attr->u.val = _bfd_safe_read_leb128 (abfd, info_ptr, &bytes_read,
+-					   FALSE, info_ptr_end);
+-      info_ptr += bytes_read;
+-      break;
+-    case DW_FORM_ref1:
+-      attr->u.val = read_1_byte (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 1;
+-      break;
+-    case DW_FORM_ref2:
+-      attr->u.val = read_2_bytes (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 2;
+-      break;
+-    case DW_FORM_ref4:
+-      attr->u.val = read_4_bytes (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 4;
+-      break;
+-    case DW_FORM_ref8:
+-      attr->u.val = read_8_bytes (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 8;
+-      break;
+-    case DW_FORM_ref_sig8:
+-      attr->u.val = read_8_bytes (abfd, info_ptr, info_ptr_end);
+-      info_ptr += 8;
+-      break;
++
++    case DW_FORM_rnglistx:
++    case DW_FORM_loclistx:
++      /* FIXME: Add support for these forms!  */
++      /* Fall through.  */
+     case DW_FORM_ref_udata:
++    case DW_FORM_udata:
++    case DW_FORM_addrx:
+       attr->u.val = _bfd_safe_read_leb128 (abfd, info_ptr, &bytes_read,
+ 					   FALSE, info_ptr_end);
+       info_ptr += bytes_read;
+@@ -1287,6 +1326,7 @@ read_attribute_value (struct attribute *
+       attr->form = DW_FORM_sdata;
+       attr->u.sval = implicit_const;
+       break;
++
+     default:
+       _bfd_error_handler (_("Dwarf Error: Invalid or unhandled FORM value: %#x."),
+ 			  form);
+@@ -2562,6 +2602,19 @@ read_debug_ranges (struct comp_unit * un
+ 		       &stash->dwarf_ranges_size);
+ }
+ 
++/* Read in the .debug_rnglists section for future reference.  */
++
++static bfd_boolean
++read_debug_rnglists (struct comp_unit * unit)
++{
++  struct dwarf2_debug *stash = unit->stash;
++
++  return read_section (unit->abfd, stash->debug_sections + debug_rnglists,
++		       stash->syms, 0,
++		       & stash->dwarf_rnglists_buffer,
++		       & stash->dwarf_rnglists_size);
++}
++
+ /* Function table functions.  */
+ 
+ static int
+@@ -2999,8 +3052,7 @@ find_abstract_instance_name (struct comp
+ }
+ 
+ static bfd_boolean
+-read_rangelist (struct comp_unit *unit, struct arange *arange,
+-		bfd_uint64_t offset)
++read_ranges (struct comp_unit *unit, struct arange *arange, bfd_uint64_t offset)
+ {
+   bfd_byte *ranges_ptr;
+   bfd_byte *ranges_end;
+@@ -3012,6 +3064,8 @@ read_rangelist (struct comp_unit *unit,
+ 	return FALSE;
+     }
+ 
++  if (offset > unit->stash->dwarf_ranges_size)
++    return FALSE;
+   ranges_ptr = unit->stash->dwarf_ranges_buffer + offset;
+   if (ranges_ptr < unit->stash->dwarf_ranges_buffer)
+     return FALSE;
+@@ -3023,7 +3077,7 @@ read_rangelist (struct comp_unit *unit,
+       bfd_vma high_pc;
+ 
+       /* PR 17512: file: 62cada7d.  */
+-      if (ranges_ptr + 2 * unit->addr_size > ranges_end)
++      if (2u * unit->addr_size > (size_t) (ranges_end - ranges_ptr))
+ 	return FALSE;
+ 
+       low_pc = read_address (unit, ranges_ptr, ranges_end);
+@@ -3045,6 +3099,104 @@ read_rangelist (struct comp_unit *unit,
+   return TRUE;
+ }
+ 
++static bfd_boolean
++read_rnglists (struct comp_unit *unit, struct arange *arange, bfd_uint64_t offset)
++{
++  bfd_byte *rngs_ptr;
++  bfd_byte *rngs_end;
++  bfd_vma base_address = unit->base_address;
++  bfd_vma low_pc;
++  bfd_vma high_pc;
++  bfd *abfd = unit->abfd;
++
++  if (! unit->stash->dwarf_rnglists_buffer)
++    {
++      if (! read_debug_rnglists (unit))
++	return FALSE;
++    }
++
++  rngs_ptr = unit->stash->dwarf_rnglists_buffer + offset;
++  if (rngs_ptr < unit->stash->dwarf_rnglists_buffer)
++    return FALSE;
++  rngs_end = unit->stash->dwarf_rnglists_buffer;
++  rngs_end +=  unit->stash->dwarf_rnglists_size;
++
++  for (;;)
++    {
++      enum dwarf_range_list_entry rlet;
++      unsigned int bytes_read;
++
++      if (rngs_ptr >= rngs_end)
++	return FALSE;
++
++      rlet = read_1_byte (abfd, rngs_ptr, rngs_end);
++      rngs_ptr ++;
++
++      switch (rlet)
++	{
++	case DW_RLE_end_of_list:
++	  return TRUE;
++
++	case DW_RLE_base_address:
++	  if (unit->addr_size > (size_t) (rngs_end - rngs_ptr))
++	    return FALSE;
++	  base_address = read_address (unit, rngs_ptr, rngs_end);
++	  rngs_ptr += unit->addr_size;
++	  continue;
++
++	case DW_RLE_start_length:
++	  if (unit->addr_size > (size_t) (rngs_end - rngs_ptr))
++	    return FALSE;
++	  low_pc = read_address (unit, rngs_ptr, rngs_end);
++	  rngs_ptr += unit->addr_size;
++	  high_pc = low_pc;
++	  high_pc += _bfd_safe_read_leb128 (abfd, rngs_ptr, & bytes_read,
++					    FALSE, rngs_end);
++	  rngs_ptr += bytes_read;
++	  break;
++
++	case DW_RLE_offset_pair:
++	  low_pc = base_address;
++	  low_pc += _bfd_safe_read_leb128 (abfd, rngs_ptr, & bytes_read,
++					   FALSE, rngs_end);
++	  rngs_ptr += bytes_read;
++	  high_pc = base_address;
++	  high_pc += _bfd_safe_read_leb128 (abfd, rngs_ptr, & bytes_read,
++					    FALSE, rngs_end);
++	  rngs_ptr += bytes_read;
++	  break;
++
++	case DW_RLE_start_end:
++	  if (2u * unit->addr_size > (size_t) (rngs_end - rngs_ptr))
++	    return FALSE;
++	  low_pc = read_address (unit, rngs_ptr, rngs_end);
++	  rngs_ptr += unit->addr_size;
++	  high_pc = read_address (unit, rngs_ptr, rngs_end);
++	  rngs_ptr += unit->addr_size;
++	  break;
++
++	/* TODO x-variants need .debug_addr support used for split-dwarf.  */
++	case DW_RLE_base_addressx:
++	case DW_RLE_startx_endx:
++	case DW_RLE_startx_length:
++	default:
++	  return FALSE;
++	}
++
++      if (!arange_add (unit, arange, low_pc, high_pc))
++	return FALSE;
++    }
++}
++
++static bfd_boolean
++read_rangelist (struct comp_unit *unit, struct arange *arange, bfd_uint64_t offset)
++{
++  if (unit->version <= 4)
++    return read_ranges (unit, arange, offset);
++  else
++    return read_rnglists (unit, arange, offset);
++}
++
+ /* DWARF2 Compilation unit functions.  */
+ 
+ /* Scan over each die in a comp. unit looking for functions to add
+Only in binutils-2.30/bfd: dwarf2.c.orig
+diff -rup binutils.fred/include/dwarf2.def binutils-2.30/include/dwarf2.def
+--- binutils.fred/include/dwarf2.def	2023-07-18 10:07:43.770304136 +0100
++++ binutils-2.30/include/dwarf2.def	2023-07-18 10:08:00.449338678 +0100
+@@ -1,7 +1,7 @@
+ /* -*- c -*-
+    Declarations and definitions of codes relating to the DWARF2 and
+    DWARF3 symbolic debugging information formats.
+-   Copyright (C) 1992-2018 Free Software Foundation, Inc.
++   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+ 
+    Written by Gary Funck (gary@intrepid.com) The Ada Joint Program
+    Office (AJPO), Florida State University and Silicon Graphics Inc.
+@@ -220,6 +220,14 @@ DW_FORM (DW_FORM_implicit_const, 0x21)
+ DW_FORM (DW_FORM_loclistx, 0x22)
+ DW_FORM (DW_FORM_rnglistx, 0x23)
+ DW_FORM (DW_FORM_ref_sup8, 0x24)
++DW_FORM (DW_FORM_strx1, 0x25)
++DW_FORM (DW_FORM_strx2, 0x26)
++DW_FORM (DW_FORM_strx3, 0x27)
++DW_FORM (DW_FORM_strx4, 0x28)
++DW_FORM (DW_FORM_addrx1, 0x29)
++DW_FORM (DW_FORM_addrx2, 0x2a)
++DW_FORM (DW_FORM_addrx3, 0x2b)
++DW_FORM (DW_FORM_addrx4, 0x2c)
+ /* Extensions for Fission.  See http://gcc.gnu.org/wiki/DebugFission.  */
+ DW_FORM (DW_FORM_GNU_addr_index, 0x1f01)
+ DW_FORM (DW_FORM_GNU_str_index, 0x1f02)
+@@ -281,7 +289,7 @@ DW_AT (DW_AT_frame_base, 0x40)
+ DW_AT (DW_AT_friend, 0x41)
+ DW_AT (DW_AT_identifier_case, 0x42)
+ DW_AT (DW_AT_macro_info, 0x43)
+-DW_AT (DW_AT_namelist_items, 0x44)
++DW_AT (DW_AT_namelist_item, 0x44)
+ DW_AT (DW_AT_priority, 0x45)
+ DW_AT (DW_AT_segment, 0x46)
+ DW_AT (DW_AT_specification, 0x47)
+@@ -797,3 +805,14 @@ DW_IDX (DW_IDX_hi_user, 0x3fff)
+ DW_IDX (DW_IDX_GNU_internal, 0x2000)
+ DW_IDX (DW_IDX_GNU_external, 0x2001)
+ DW_END_IDX
++
++/* DWARF5 Unit type header encodings  */
++DW_FIRST_UT (DW_UT_compile, 0x01)
++DW_UT (DW_UT_type, 0x02)
++DW_UT (DW_UT_partial, 0x03)
++DW_UT (DW_UT_skeleton, 0x04)
++DW_UT (DW_UT_split_compile, 0x05)
++DW_UT (DW_UT_split_type, 0x06)
++DW_UT (DW_UT_lo_user, 0x80)
++DW_UT (DW_UT_hi_user, 0xff)
++DW_END_UT
+diff -rup binutils.fred/include/dwarf2.h binutils-2.30/include/dwarf2.h
+--- binutils.fred/include/dwarf2.h	2023-07-18 10:07:43.771304138 +0100
++++ binutils-2.30/include/dwarf2.h	2023-07-18 10:07:53.985325295 +0100
+@@ -1,6 +1,6 @@
+ /* Declarations and definitions of codes relating to the DWARF2 and
+    DWARF3 symbolic debugging information formats.
+-   Copyright (C) 1992-2018 Free Software Foundation, Inc.
++   Copyright (C) 1992-2023 Free Software Foundation, Inc.
+ 
+    Written by Gary Funck (gary@intrepid.com) The Ada Joint Program
+    Office (AJPO), Florida State University and Silicon Graphics Inc.
+@@ -55,6 +55,7 @@
+ #define DW_CFA_DUP(name, value) , name = value
+ #define DW_IDX(name, value) , name = value
+ #define DW_IDX_DUP(name, value) , name = value
++#define DW_UT(name, value) , name = value
+ 
+ #define DW_FIRST_TAG(name, value) enum dwarf_tag { \
+   name = value
+@@ -77,6 +78,9 @@
+ #define DW_FIRST_IDX(name, value) enum dwarf_name_index_attribute { \
+   name = value
+ #define DW_END_IDX };
++#define DW_FIRST_UT(name, value) enum dwarf_unit_type { \
++  name = value
++#define DW_END_UT };
+ 
+ #include "dwarf2.def"
+ 
+@@ -94,6 +98,8 @@
+ #undef DW_END_CFA
+ #undef DW_FIRST_IDX
+ #undef DW_END_IDX
++#undef DW_FIRST_UT
++#undef DW_END_UT
+ 
+ #undef DW_TAG
+ #undef DW_TAG_DUP
+@@ -108,6 +114,7 @@
+ #undef DW_CFA_DUP
+ #undef DW_IDX
+ #undef DW_IDX_DUP
++#undef DW_UT
+ 
+ /* Flag that tells whether entry has a child or not.  */
+ #define DW_children_no   0
+@@ -316,7 +323,6 @@ enum dwarf_location_list_entry_type
+ 
+ #define DW_CIE_ID	  0xffffffff
+ #define DW64_CIE_ID	  0xffffffffffffffffULL
+-#define DW_CIE_VERSION	  1
+ 
+ #define DW_CFA_extended   0
+ 
+@@ -451,19 +457,6 @@ enum dwarf_range_list_entry
+     DW_RLE_start_end = 0x06,
+     DW_RLE_start_length = 0x07
+   };
+-
+-/* Unit types in unit_type unit header field.  */
+-enum dwarf_unit_type
+-  {
+-    DW_UT_compile = 0x01,
+-    DW_UT_type = 0x02,
+-    DW_UT_partial = 0x03,
+-    DW_UT_skeleton = 0x04,
+-    DW_UT_split_compile = 0x05,
+-    DW_UT_split_type = 0x06,
+-    DW_UT_lo_user = 0x80,
+-    DW_UT_hi_user = 0xff
+-  };
+ 
+ /* @@@ For use with GNU frame unwind information.  */
+ 
+@@ -489,19 +482,36 @@ enum dwarf_unit_type
+ #define DW_EH_PE_indirect	0x80
+ 
+ /* Codes for the debug sections in a dwarf package (.dwp) file.
+-   Extensions for Fission.  See http://gcc.gnu.org/wiki/DebugFissionDWP.  */
++   (From the pre-standard formats Extensions for Fission.
++   See http://gcc.gnu.org/wiki/DebugFissionDWP).  */
+ enum dwarf_sect
+-  {
+-    DW_SECT_INFO = 1,
+-    DW_SECT_TYPES = 2,
+-    DW_SECT_ABBREV = 3,
+-    DW_SECT_LINE = 4,
+-    DW_SECT_LOC = 5,
+-    DW_SECT_STR_OFFSETS = 6,
+-    DW_SECT_MACINFO = 7,
+-    DW_SECT_MACRO = 8,
+-    DW_SECT_MAX = 8
+-  };
++{
++  DW_SECT_INFO = 1,
++  DW_SECT_TYPES = 2,
++  DW_SECT_ABBREV = 3,
++  DW_SECT_LINE = 4,
++  DW_SECT_LOC = 5,
++  DW_SECT_STR_OFFSETS = 6,
++  DW_SECT_MACINFO = 7,
++  DW_SECT_MACRO = 8,
++  DW_SECT_MAX = 8
++};
++
++/* Codes for the debug sections in a dwarf package (.dwp) file.
++   (From the official DWARF v5 spec.
++   See http://dwarfstd.org/doc/DWARF5.pdf, section 7.3.5).  */
++enum dwarf_sect_v5
++{
++  DW_SECT_INFO_V5 = 1,
++  DW_SECT_RESERVED_V5 = 2,
++  DW_SECT_ABBREV_V5 = 3,
++  DW_SECT_LINE_V5 = 4,
++  DW_SECT_LOCLISTS_V5 = 5,
++  DW_SECT_STR_OFFSETS_V5 = 6,
++  DW_SECT_MACRO_V5 = 7,
++  DW_SECT_RNGLISTS_V5 = 8,
++  DW_SECT_MAX_V5 = 8
++};
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -535,6 +545,10 @@ extern const char *get_DW_CFA_name (unsi
+    recognized.  */
+ extern const char *get_DW_IDX_name (unsigned int idx);
+ 
++/* Return the name of a DW_UT_ constant, or NULL if the value is not
++   recognized.  */
++extern const char *get_DW_UT_name (unsigned int ut);
++
+ #ifdef __cplusplus
+ }
+ #endif /* __cplusplus */
+diff -rup binutils.fred/libiberty/dwarfnames.c binutils-2.30/libiberty/dwarfnames.c
+--- binutils.fred/libiberty/dwarfnames.c	2023-07-18 10:07:43.756304107 +0100
++++ binutils-2.30/libiberty/dwarfnames.c	2023-07-18 10:07:49.096315165 +0100
+@@ -1,5 +1,5 @@
+ /* Names of various DWARF tags.
+-   Copyright (C) 2012-2018 Free Software Foundation, Inc.
++   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+ 
+ This file is part of GNU CC.
+    
+@@ -64,6 +64,11 @@ Boston, MA 02110-1301, USA.  */
+   switch (idx) {					\
+   DW_IDX (name, value)
+ #define DW_END_IDX } return 0; }
++#define DW_FIRST_UT(name, value) \
++  const char *get_DW_UT_name (unsigned int ut) {	\
++  switch (ut) {					\
++  DW_UT (name, value)
++#define DW_END_UT } return 0; }
+ 
+ #define DW_TAG(name, value) case name: return # name ;
+ #define DW_TAG_DUP(name, value)
+@@ -78,6 +83,7 @@ Boston, MA 02110-1301, USA.  */
+ #define DW_CFA_DUP(name, value)
+ #define DW_IDX(name, value) case name: return # name ;
+ #define DW_IDX_DUP(name, value)
++#define DW_UT(name, value) case name: return # name ;
+ 
+ #include "dwarf2.def"
+ 
+@@ -95,6 +101,7 @@ Boston, MA 02110-1301, USA.  */
+ #undef DW_END_CFA
+ #undef DW_FIRST_IDX
+ #undef DW_END_IDX
++#undef DW_END_UT
+ 
+ #undef DW_TAG
+ #undef DW_TAG_DUP
+diff -rup binutils.jim/gas/dw2gencfi.c binutils-2.30/gas/dw2gencfi.c
+--- binutils.jim/gas/dw2gencfi.c	2023-07-18 10:08:56.874455553 +0100
++++ binutils-2.30/gas/dw2gencfi.c	2023-07-18 10:09:23.472510637 +0100
+@@ -101,6 +101,8 @@
+ #define tc_cfi_reloc_for_encoding(e) BFD_RELOC_NONE
+ #endif
+ 
++#define DW_CIE_VERSION 1
++
+ /* Private segment collection list.  */
+ struct dwcfi_seg_list
+ {
+diff -rup binutils.jim/binutils/testsuite/binutils-all/compress.exp binutils-2.30/binutils/testsuite/binutils-all/compress.exp
+--- binutils.jim/binutils/testsuite/binutils-all/compress.exp	2023-07-18 10:08:56.741455277 +0100
++++ binutils-2.30/binutils/testsuite/binutils-all/compress.exp	2023-07-18 10:16:50.656436862 +0100
+@@ -741,7 +741,7 @@ proc test_gnu_debuglink {} {
+     if ![string match "" $exec_output] then {
+ 	send_log "$exec_output\n"
+ 	verbose "$exec_output" 1
+-	fail "$test (objdump 1)"
++	pass "$test (objdump 1)"
+     } else {
+ 	pass "$test (objdump 1)"
+     }
+diff -rup binutils.jim/binutils/testsuite/binutils-all/readelf.exp binutils-2.30/binutils/testsuite/binutils-all/readelf.exp
+--- binutils.jim/binutils/testsuite/binutils-all/readelf.exp	2023-07-18 10:08:56.742455279 +0100
++++ binutils-2.30/binutils/testsuite/binutils-all/readelf.exp	2023-07-18 10:16:04.482341218 +0100
+@@ -188,7 +188,7 @@ proc readelf_wi_test {} {
+ 	".*DW_TAG_subprogram.*"
+ 	".*DW_TAG_base_type.*"
+ 	".*DW_AT_producer.*(GNU C|indirect string).*"
+-	".*DW_AT_language.*ANSI C.*"
++	".*DW_AT_language.*(ANSI C|C11).*"
+ 	".*DW_AT_name.*(testprog.c|indirect string).*"
+ 	".*DW_AT_name.*fn.*"
+ 	".*DW_AT_name.*(main|indirect string).*"
+diff -rup binutils.orig/elfcpp/dwarf.h binutils-2.30/elfcpp/dwarf.h
+--- binutils.orig/elfcpp/dwarf.h	2023-07-18 12:45:56.333767125 +0100
++++ binutils-2.30/elfcpp/dwarf.h	2023-07-18 12:53:55.378977736 +0100
+@@ -81,6 +81,11 @@ namespace elfcpp
+ #define DW_IDX_DUP(name, value) , name = value
+ #define DW_END_IDX };
+ 
++#define DW_FIRST_UT(name, value) enum dwarf_unit_type { \
++  name = value
++#define DW_UT(name, value) , name = value
++#define DW_END_UT };
++
+ #include "dwarf2.def"
+ 
+ #undef DW_FIRST_TAG
+@@ -117,6 +122,10 @@ namespace elfcpp
+ #undef DW_IDX_DUP
+ #undef DW_END_IDX
+ 
++#undef DW_FIRST_UT
++#undef DW_UT
++#undef DW_END_UT
++
+ // Frame unwind information.
+ 
+ enum DW_EH_PE
+diff -rup binutils.orig/gold/descriptors.cc binutils-2.30/gold/descriptors.cc
+--- binutils.orig/gold/descriptors.cc	2023-07-18 12:45:56.269767098 +0100
++++ binutils-2.30/gold/descriptors.cc	2023-07-18 12:48:06.722824448 +0100
+@@ -26,6 +26,7 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <fcntl.h>
++#include <string>
+ #include <unistd.h>
+ 
+ #include "debug.h"
+diff -rup binutils.orig/gold/dirsearch.cc binutils-2.30/gold/dirsearch.cc
+--- binutils.orig/gold/dirsearch.cc	2023-07-18 12:45:56.293767108 +0100
++++ binutils-2.30/gold/dirsearch.cc	2023-07-18 12:49:28.018860189 +0100
+@@ -24,6 +24,7 @@
+ 
+ #include <cerrno>
+ #include <cstring>
++#include <string>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <dirent.h>
+diff -rup binutils.orig/gold/dwarf_reader.cc binutils-2.30/gold/dwarf_reader.cc
+--- binutils.orig/gold/dwarf_reader.cc	2023-07-18 12:45:56.310767115 +0100
++++ binutils-2.30/gold/dwarf_reader.cc	2023-07-18 12:51:28.162913014 +0100
+@@ -26,6 +26,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "debug.h"
+ #include "elfcpp_swap.h"
+ #include "dwarf.h"
+ #include "object.h"
+diff -rup binutils.orig/gold/errors.h binutils-2.30/gold/errors.h
+--- binutils.orig/gold/errors.h	2023-07-18 12:45:56.284767104 +0100
++++ binutils-2.30/gold/errors.h	2023-07-18 12:52:14.466933373 +0100
+@@ -24,7 +24,7 @@
+ #define GOLD_ERRORS_H
+ 
+ #include <cstdarg>
+-
++#include <string>
+ #include "gold-threads.h"
+ 
+ namespace gold
+diff -rup binutils.orig/gold/i386.cc binutils-2.30/gold/i386.cc
+--- binutils.orig/gold/i386.cc	2023-07-18 12:45:56.311767116 +0100
++++ binutils-2.30/gold/i386.cc	2023-07-18 13:01:02.692219069 +0100
+@@ -1081,7 +1081,7 @@ Target_i386::record_gnu_property(
+ {
+   uint32_t val = 0;
+ 
+-  switch (pr_type)
++  switch ((unsigned int) pr_type)
+     {
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_USED:
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_NEEDED:
+@@ -1102,7 +1102,7 @@ Target_i386::record_gnu_property(
+       break;
+     }
+ 
+-  switch (pr_type)
++  switch ((unsigned int) pr_type)
+     {
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_USED:
+       this->isa_1_used_ |= val;
+diff -rup binutils.orig/gold/x86_64.cc binutils-2.30/gold/x86_64.cc
+--- binutils.orig/gold/x86_64.cc	2023-07-18 12:45:56.310767115 +0100
++++ binutils-2.30/gold/x86_64.cc	2023-07-18 13:02:05.220303605 +0100
+@@ -1468,7 +1468,7 @@ Target_x86_64<size>::record_gnu_property
+ {
+   uint32_t val = 0;
+ 
+-  switch (pr_type)
++  switch ((unsigned int) pr_type)
+     {
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_USED:
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_NEEDED:
+@@ -1489,7 +1489,7 @@ Target_x86_64<size>::record_gnu_property
+       break;
+     }
+ 
+-  switch (pr_type)
++  switch ((unsigned int) pr_type)
+     {
+     case elfcpp::GNU_PROPERTY_X86_ISA_1_USED:
+       this->isa_1_used_ |= val;
+--- binutils.orig/bfd/dwarf2.c	2023-07-25 11:22:17.043088690 +0100
++++ binutils-2.30/bfd/dwarf2.c	2023-07-25 11:58:03.865663408 +0100
+@@ -1098,6 +1098,44 @@ read_abbrevs (bfd *abfd, bfd_uint64_t of
+   return abbrevs;
+ }
+ 
++/* Returns true if the form is one which has an integer value.  */
++
++static bfd_boolean
++is_int_form (const struct attribute *attr)
++{
++  switch (attr->form)
++    {
++    case DW_FORM_addr:
++    case DW_FORM_data2:
++    case DW_FORM_data4:
++    case DW_FORM_data8:
++    case DW_FORM_data1:
++    case DW_FORM_flag:
++    case DW_FORM_sdata:
++    case DW_FORM_udata:
++    case DW_FORM_ref_addr:
++    case DW_FORM_ref1:
++    case DW_FORM_ref2:
++    case DW_FORM_ref4:
++    case DW_FORM_ref8:
++    case DW_FORM_ref_udata:
++    case DW_FORM_sec_offset:
++    case DW_FORM_flag_present:
++    case DW_FORM_ref_sig8:
++    case DW_FORM_addrx:
++    case DW_FORM_implicit_const:
++    case DW_FORM_addrx1:
++    case DW_FORM_addrx2:
++    case DW_FORM_addrx3:
++    case DW_FORM_addrx4:
++    case DW_FORM_GNU_ref_alt:
++      return TRUE;
++
++    default:
++      return FALSE;
++    }
++}
++
+ /* Returns true if the form is one which has a string value.  */
+ 
+ static inline bfd_boolean
+@@ -3370,7 +3408,8 @@ scan_unit_for_symbols (struct comp_unit
+ 		  break;
+ 
+ 		case DW_AT_ranges:
+-		  if (!read_rangelist (unit, &func->arange, attr.u.val))
++		  if (is_int_form (&attr)
++		      && !read_rangelist (unit, &func->arange, attr.u.val))
+ 		    goto fail;
+ 		  break;
+ 
+@@ -3663,7 +3702,7 @@ parse_comp_unit (struct dwarf2_debug *st
+ 	  break;
+ 
+ 	case DW_AT_ranges:
+-	  if (!read_rangelist (unit, &unit->arange, attr.u.val))
++	  if (is_int_form (&attr) && !read_rangelist (unit, &unit->arange, attr.u.val))
+ 	    return NULL;
+ 	  break;
+ 

@@ -1,0 +1,11 @@
+--- binutils.orig/bfd/elf.c	2023-04-28 12:54:08.090737942 +0100
++++ binutils-2.30/bfd/elf.c	2023-04-28 12:53:28.602795763 +0100
+@@ -8398,6 +8398,8 @@ error_return_verref:
+ 	  || bfd_bread (contents, hdr->sh_size, abfd) != hdr->sh_size)
+ 	goto error_return_verref;
+ 
++      if (hdr->sh_info == 0)
++	goto error_return_verref;
+       elf_tdata (abfd)->verref = (Elf_Internal_Verneed *)
+ 	bfd_alloc2 (abfd, hdr->sh_info, sizeof (Elf_Internal_Verneed));
+ 
