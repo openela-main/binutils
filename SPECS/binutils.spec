@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.35.2
-Release: 42%{?dist}
+Release: 42%{?dist}.1
 License: GPLv3+
 URL: https://sourceware.org/binutils
 
@@ -440,6 +440,11 @@ Patch65: binutils.gold.dwarf-5-support.patch
 # Purpose:  Add support for the AArch64 'flagm' extenstion to the assembler.
 # Lifetime: 2.36
 Patch66: binutils-aarch64-flagm.patch
+
+# Purpose:  Don't set version info on unversioned symbols.
+# Lifetime: Fixed in 2.38
+Patch67: binutils-verdef.patch
+
 #----------------------------------------------------------------------------
 
 Provides: bundled(libiberty)
@@ -1280,6 +1285,9 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
+* Thu Jan 25 2024 Nick Clifton  <nickc@redhat.com> - 2.35.2-42.1
+- Do not set version info on unversion symbols.  (RHEL-22601)
+
 * Wed Apr 26 2023 Nick Clifton  <nickc@redhat.com> - 2.35.2-42
 - Add support for the AArch64 'flagm' extenstion to the assembler.  (#2189304)
 
