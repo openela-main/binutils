@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.35.2
-Release: 42%{?dist}.1
+Release: 43%{?dist}
 License: GPLv3+
 URL: https://sourceware.org/binutils
 
@@ -1285,7 +1285,7 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
-* Thu Jan 25 2024 Nick Clifton  <nickc@redhat.com> - 2.35.2-42.1
+* Thu Jan 25 2024 Nick Clifton  <nickc@redhat.com> - 2.35.2-43
 - Do not set version info on unversion symbols.  (RHEL-22601)
 
 * Wed Apr 26 2023 Nick Clifton  <nickc@redhat.com> - 2.35.2-42
