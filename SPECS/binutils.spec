@@ -43,7 +43,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?name_cross}%{?_with_debug:-debug}
 Version: 2.30
-Release: 125%{?dist}
+Release: 127%{?dist}
 License: GPLv3+
 URL: https://sourceware.org/binutils
 
@@ -667,6 +667,14 @@ Patch110: binutils-CVE-2018-12699-part6-PR28862.patch
 # Lifetime: 2.35
 Patch111: binutils-CVE-2018-12699-part7-PR28718.patch
 
+# Purpose:  Add support to the BFD library for separate debuginfo files created by dwz.
+# Lifetime: 2.35
+Patch112: binutils-Add-BFD-support-for-dwz-files.patch
+
+# Purpose:  Fix/workaround more linker testsuite failures.
+# Lifetime: 2.35
+Patch113: binutils-more-testsuite-failures.patch
+
 #----------------------------------------------------------------------------
 
 Provides: bundled(libiberty)
@@ -804,117 +812,7 @@ using libelf instead of BFD.
 
 %prep
 %setup -q -n binutils-%{version}
-%patch01 -p1
-%patch02 -p1
-%patch03 -p1
-%patch04 -p1
-%patch05 -p1
-%patch06 -p1
-%patch07 -p1
-%patch08 -p1
-%patch09 -p1
-%patch10 -p1
-%patch11 -p1
-%patch12 -p1
-%patch13 -p1
-%patch14 -p1
-%patch15 -p1
-%patch16 -p1
-%patch17 -p1
-%patch18 -p1
-%patch19 -p1
-%patch20 -p1
-%patch21 -p1
-%patch22 -p1
-%patch23 -p1
-%patch24 -p1
-%patch25 -p1
-%patch26 -p1
-%patch27 -p1
-%patch28 -p1
-%patch29 -p1
-%patch30 -p1
-%patch31 -p1
-%patch32 -p1
-%patch33 -p1
-%patch34 -p1
-%patch35 -p1
-%patch36 -p1
-%patch37 -p1
-%patch38 -p1
-%patch39 -p1
-%patch40 -p1
-%patch41 -p1
-%patch42 -p1
-%patch43 -p1
-%patch44 -p1
-%patch45 -p1
-%patch46 -p1
-%patch47 -p1
-%patch48 -p1
-%patch49 -p1
-%patch50 -p1
-%patch51 -p1
-%patch52 -p1
-%patch53 -p1
-%patch54 -p1
-%patch55 -p1
-%patch56 -p1
-%patch57 -p1
-%patch58 -p1
-%patch59 -p1
-%patch60 -p1
-%patch61 -p1
-%patch62 -p1
-%patch63 -p1
-%patch64 -p1
-%patch65 -p1
-%patch66 -p1
-%patch67 -p1
-%patch68 -p1
-%patch69 -p1
-%patch70 -p1
-%patch71 -p1
-%patch72 -p1
-%patch73 -p1
-%patch74 -p1
-%patch75 -p1
-%patch76 -p1
-%patch77 -p1
-%patch78 -p1
-%patch79 -p1
-%patch80 -p1
-%patch81 -p1
-%patch82 -p1
-%patch83 -p1
-%patch84 -p1
-%patch85 -p1
-%patch86 -p1
-%patch87 -p1
-%patch88 -p1
-%patch89 -p1
-%patch90 -p1
-%patch91 -p1
-%patch92 -p1
-%patch93 -p1
-%patch94 -p1
-%patch95 -p1
-%patch96 -p1
-%patch97 -p1
-%patch98 -p1
-%patch99 -p1
-%patch100 -p1
-%patch101 -p1
-%patch102 -p1
-%patch103 -p1
-%patch104 -p1
-%patch105 -p1
-%patch106 -p1
-%patch107 -p1
-%patch108 -p1
-%patch109 -p1
-%patch110 -p1
-%patch111 -p1
+%autosetup -p1
 
 # We cannot run autotools as there is an exact requirement of autoconf-2.59.
 # FIXME - this is no longer true.  Maybe try reinstating autotool use ?
@@ -1115,6 +1013,13 @@ if [-f gold/testsuite/test-suite.log ]; then
   rm -f    binutils-%{_target_platform}-gold.log.tar.xz
 fi
 %endif
+
+# Run the tests and this time fail if there are any errors.
+echo ====================RE-TESTING=========================
+make -k check-gas check-binutils check-ld < /dev/null
+# Ignore the gold tests - they always fail
+echo ====================RE-TESTING END=====================
+
 %endif
 
 #----------------------------------------------------------------------------
@@ -1364,6 +1269,13 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
+* Mon Apr 14 2025 Nick Clifton  <nickc@redhat.com> - 2.30-127
+- Spec file: Rerun testsuites in order to fail build if the tests fail.
+- Import fix for PR 23652 in order to avoid AArch64 mapping symbols in linker error messages.  (RHEL-84080)
+
+* Wed Nov 06 2024 Nick Clifton  <nickc@redhat.com> - 2.30-126
+- Fix problems reading dwz created debug info files.  (RHEL-84080)
+
 * Wed Nov 06 2024 Nick Clifton  <nickc@redhat.com> - 2.30-125
 - Fix illegal memory accesses when parsing corrupt a.out format files.  (RHEL-64927)
 
