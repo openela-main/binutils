@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.41
-Release: 53%{?dist}
+Release: 58%{?dist}
 License: GPL-3.0-or-later AND (GPL-3.0-or-later WITH Bison-exception-2.2) AND (LGPL-2.0-or-later WITH GCC-exception-2.0) AND BSD-3-Clause AND GFDL-1.3-or-later AND GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.0-or-later
 URL: https://sourceware.org/binutils
 
@@ -77,8 +77,8 @@ URL: https://sourceware.org/binutils
 # configurable in case there is ever a need to disable thread support.
 %define enable_threading 1
 
-# Enable the use of separate code and data segments for all architectures,
-# not just x86/x86_64.
+# Separate code is disabled on all architectures by default.  Individual
+# packages can decide to enable it if they want to.
 %define enable_separate_code 0
 
 #----End of Configure Options------------------------------------------------
@@ -375,12 +375,19 @@ Patch58: binutils-Intel-APX-part-1-extra-relocs.patch
 # Lifetime: Fixed in 2.45
 Patch59: binutils-aarch64-small-plt0.patch
 
-#----------------------------------------------------------------------------
+# Purpose:  Adds z17 as a cpu name for the s390x architecture.
+# Lifetime: Fixed in 2.45
+Patch60: binutils-s390-z17-cpu-name.patch
 
-# Purpose:  Workaround for an unresolved bug in ppc gcc
-#           which generates bad code in the linker.  cf RHEL-49348
-# Lifetime: TEMPORARY
-Patch98: bin.ppc64.gcc.patch
+# Purpose:  Add basic support for RISC-V 64-bit EFI objects.
+# Lifetime: Fixed in 2.42
+Patch61: binutils-riscv-efi.patch
+
+# Purpose:  Fix a potential NULL pointer dereference when parsing a corrupt ELF file.
+# Lifetime: Fixed in 2.45
+Patch62: binutils-CVE-2025-5244.patch
+
+#----------------------------------------------------------------------------
 
 # Purpose:  Suppress the x86 linker's p_align-1 tests due to kernel bug on CentOS-10
 # Lifetime: TEMPORARY
@@ -400,6 +407,10 @@ Provides: bundled(libiberty)
 # Perl, sed and touch are all used in the %%prep section of this spec file.
 BuildRequires: autoconf, automake, perl, sed, coreutils, make
 
+# bison is used to generate either gold/yyscript.c or ld/ldgram.c depending
+# on the build architecture.
+BuildRequires: bison
+
 %if %{with clang}
 BuildRequires: clang compiler-rt
 %else
@@ -407,8 +418,8 @@ BuildRequires: gcc
 %endif
 
 %if %{with gold}
-# Gold needs bison in order to build gold/yyscript.c.  The GOLD testsuite needs a static libc++
-BuildRequires: bison, m4, gcc-c++, libstdc++-static
+# The GOLD testsuite needs a static libc++
+BuildRequires: libstdc++-static
 
 %if ! %{with clang}
 BuildRequires: gcc-c++
@@ -546,7 +557,6 @@ linker, and it may become deprecated in the future.
 Summary: Next Generating code profiling tool
 Provides: gprofng = %{version}-%{release}
 Requires: binutils = %{version}-%{release}
-BuildRequires: bison
 
 %description gprofng
 GprofNG is the GNU Next Generation Profiler for analyzing the performance 
@@ -1416,6 +1426,23 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
+* Wed Aug 06 2025 Nick Clifton  <nickc@redhat.com> - 2.41-58
+- Remove workaround for CVE-2025-5702.  (RHEL-100159)
+
+* Mon Jun 30 2025 Nick Clifton  <nickc@redhat.com> - 2.41-57
+- Add fix for CVE-2025-5244.  (RHEL-100417)
+- USe correct fix for CVE-2025-5702.  (RHEL-100159)
+
+* Mon Apr 28 2025 Andrea Bolognani  <abologna@redhat.com> - 2.41-56
+- Add basic support for RISC-V 64-bit EFI objects.  (RHEL-88815)
+
+* Tue Apr 15 2025 Nick Clifton  <nickc@redhat.com> - 2.41-55
+- Adds z17 as a cpu name for the s390x architecture.  (RHEL-87215)
+
+* Wed Apr 02 2025 Andrea Bolognani  <abologna@redhat.com> - 2.41-54
+- Fix BuildRequires for non-gold architectures.  (RHEL-85855)
+- Fix RISC-V ld testsuite failures (thanks Nick Clifton).  (RHEL-85855)
+
 * Fri Feb 07 2025 Nick Clifton  <nickc@redhat.com> - 2.41-53
 - Fix seg-fault in AArch64 linker when building u-boot.  (RHEL-78233)
 
