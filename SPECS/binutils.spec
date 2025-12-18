@@ -43,7 +43,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?name_cross}%{?_with_debug:-debug}
 Version: 2.30
-Release: 127%{?dist}
+Release: 128%{?dist}
 License: GPLv3+
 URL: https://sourceware.org/binutils
 
@@ -675,6 +675,11 @@ Patch112: binutils-Add-BFD-support-for-dwz-files.patch
 # Lifetime: 2.35
 Patch113: binutils-more-testsuite-failures.patch
 
+# Purpose:  Stops a potential illegal memory access when linking a corrupt
+#            input file.  PR 33457
+# Lifetime: Fixed in 2.46
+Patch114: binutils-CVE-2025-11083.patch
+
 #----------------------------------------------------------------------------
 
 Provides: bundled(libiberty)
@@ -1269,6 +1274,9 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
+* Wed Nov 12 2025 Nick Clifton  <nickc@redhat.com> - 2.30-128
+- Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-126878)
+
 * Mon Apr 14 2025 Nick Clifton  <nickc@redhat.com> - 2.30-127
 - Spec file: Rerun testsuites in order to fail build if the tests fail.
 - Import fix for PR 23652 in order to avoid AArch64 mapping symbols in linker error messages.  (RHEL-84080)
