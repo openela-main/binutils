@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.41
-Release: 58%{?dist}.2
+Release: 63%{?dist}
 License: GPL-3.0-or-later AND (GPL-3.0-or-later WITH Bison-exception-2.2) AND (LGPL-2.0-or-later WITH GCC-exception-2.0) AND BSD-3-Clause AND GFDL-1.3-or-later AND GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.0-or-later
 URL: https://sourceware.org/binutils
 
@@ -121,7 +121,7 @@ URL: https://sourceware.org/binutils
 %endif
 
 # Create cross targeted versions of the binutils.
-# For now we only do this for x86_64 hosts.
+# For now we only do this for x86_64 hosts.  (This is all that is needed by RHIVOS).
 %ifarch x86_64
 %bcond_without crossbuilds
 %else
@@ -397,6 +397,11 @@ Patch63: binutils-CVE-2025-11082.patch
 # Lifetime: Fixed in 2.46
 Patch64: binutils-CVE-2025-11083.patch
 
+# Purpose:  Stops a potential illegal memory access when copying a corrupt
+#            input file.  PR 33050
+# Lifetime: Fixed in 2.46
+Patch65: binutils-error-on-corrupted-group.patch
+
 #----------------------------------------------------------------------------
 
 # Purpose:  Suppress the x86 linker's p_align-1 tests due to kernel bug on CentOS-10
@@ -584,7 +589,29 @@ of Linux applications.
 
 # The list of cross targets to build.
 %global system         redhat-linux
-%global cross_targets  aarch64-%{system} ppc64le-%{system} s390x-%{system} x86_64-%{system}
+
+# Since we are currently only building cross tools for x86_64 hosts, we never need to build a
+# cross-x86_64 toolchain.
+# FIXME: RHIVOS currently only needs an AArch64 cross toolchain but historically we have always
+# built all of the crosses.  We could save time & resources by only building the AArch64 cross.
+
+# %%global cross_targets  aarch64-%%{system} ppc64le-%%{system} s390x-%%{system} x86_64-%%{system}
+%global cross_targets     aarch64-%{system} ppc64le-%{system} s390x-%{system}
+# %%global cross_targets  aarch64-%%{system}
+
+%define build_cross_aarch64 1
+%define build_cross_ppc64le 1
+%define build_cross_s390x   1
+%define build_cross_x86_64  0
+
+# %%define build_cross_aarch64 1
+# %%define build_cross_ppc64le 0
+# %%define build_cross_s390x   0
+# %%define build_cross_x86_64  0
+
+#----Cross AArch64 ----------------------------------------------------------
+
+%if %{build_cross_aarch64}
 
 %package -n cross-binutils-aarch64
 Summary: Cross targeted AArch64 binutils for developer use.  Not intended for production.
@@ -596,10 +623,20 @@ Requires: zlib-devel
 BuildRequires: autoconf automake perl sed coreutils make gcc findutils gcc-c++
 ExcludeArch: aarch64-linux-gnu aarch64-redhat-linux
 
+# Wanted for testing, but currently only available on Fedora
+%if 0%{?fedora} != 0
+BuildRequires: gcc-aarch64-linux-gnu
+%endif
+
 %description -n cross-binutils-aarch64
 This package contains an AArch64 cross targeted version of the binutils for
 use by developers.  It is NOT INTENDED FOR PRODUCTION use.
 
+%endif
+ 
+#----Cross PowerPC ----------------------------------------------------------
+
+%if %{build_cross_ppc64le}
 
 %package -n cross-binutils-ppc64le
 Summary: Cross targeted PPC64LE binutils for developer use.  Not intended for production.
@@ -611,10 +648,20 @@ Requires: zlib-devel
 BuildRequires: autoconf automake perl sed coreutils make gcc findutils gcc-c++
 ExcludeArch: ppc64le-linux-gnu ppc64le-redhat-linux
 
+# Wanted for testing, but currently only available on Fedora
+%if 0%{?fedora} != 0
+BuildRequires: gcc-ppc64le-linux-gnu
+%endif
+
 %description -n cross-binutils-ppc64le
 This package contains a PPC64LE cross targeted version of the binutils for
 use by developers.  It is NOT INTENDED FOR PRODUCTION use.
 
+%endif
+
+#----Cross S390X ----------------------------------------------------------
+
+%if %{build_cross_s390x}
 
 %package -n cross-binutils-s390x
 Summary: Cross targeted S390X binutils for developer use.  Not intended for production.
@@ -626,10 +673,20 @@ Requires: zlib-devel
 BuildRequires: autoconf automake perl sed coreutils make gcc findutils gcc-c++
 ExcludeArch: s390x-linux-gnu s390x-redhat-linux
 
+# Wanted for testing, but currently only available on Fedora
+%if 0%{?fedora} != 0
+BuildRequires: gcc-s390x-linux-gnu
+%endif
+
 %description -n cross-binutils-s390x
 This package contains a S390X cross targeted version of the binutils for
 use by developers.  It is NOT INTENDED FOR PRODUCTION use.
 
+%endif
+
+#----Cross X86_64 ----------------------------------------------------------
+
+%if %{build_cross_x86_64}
 
 %package -n cross-binutils-x86_64
 Summary: Cross targeted X86_64 binutils for developer use.  Not intended for production.
@@ -641,10 +698,18 @@ Requires: zlib-devel
 BuildRequires: autoconf automake perl sed coreutils make gcc findutils gcc-c++
 ExcludeArch: x86_64-linux-gnu x86_64-redhat-linux i686-linux-gnu i686-redhat-linux
 
+# Wanted for testing, but currently only available on Fedora
+%if 0%{?fedora} != 0
+BuildRequires: gcc-x86_64-linux-gnu
+%endif
+
 %description -n cross-binutils-x86_64
 This package contains a X86_64 cross targeted version of the binutils for
 use by developers.  It is NOT INTENDED FOR PRODUCTION use.
 
+%endif
+
+# End of: %%if %%{with crossbuilds}
 %endif
 
 #----------------------------------------------------------------------------
@@ -888,12 +953,14 @@ run_target_configuration()
         # Disable the GOLD linker for cross builds because although it does
         # support sysroots specified on the command line, it does not support
         # them in linker scripts via the =/$SYSROOT prefix.
+	# Disable GPROFNG because it does not support cross targets.
 	SARGS="--with-sysroot=yes \
                --program-prefix=$target- \
                --prefix=%{_prefix}/$target \
                --libdir=%{_libdir} \
                --exec-prefix=%{_usr} \
                --sysconfdir=%{_sysconfdir} \
+	       --enable-gprofng=no \
 	       --disable-gold"
     fi
 
@@ -931,7 +998,7 @@ build_target()
 
 # run_tests()
 #	Test a built (but not installed) binutils.
-#        $1 is the target architecture
+#        $1 is the target architecture, eg x86_64-redhat-linux, aarch64-redhat-linux, etc
 #        $2 is 1 if this is a native build
 #
 run_tests()
@@ -967,10 +1034,13 @@ run_tests()
 	make -k check-gold < /dev/null || :
 %endif
     else
-	# Do not try running linking tests for the cross-binutils.
-	make -k check-gas check-binutils < /dev/null || :
+	# Don't bother with gold for cross tools, even if it is built.
+	# Set CC and CXX so that if they are available they will be used.
+	make -k check-gas check-binutils check-ld CC=$target-gcc CCX=$target-gcc < /dev/null || :
     fi
     
+    echo ================ $target == ARCHIVE THE RESULTS OF TEST RUN 1 ======
+
     for f in {gas/testsuite/gas,ld/ld,binutils/binutils}.sum
     do
 	if [ -f $f ]; then
@@ -987,6 +1057,15 @@ run_tests()
     fi
 %endif
 
+    # Create a tarball of the results and uuencode it.  This allows the full
+    # test results to be retrieved from the build.log file and examined
+    # locally.
+    #
+    # NOTE: Using uudecode to extract the tarballs from the build.log file
+    # will only decode the *first* uuencoded file, any others will be ignored.
+    # Instead the program "uudeview" should be used as this will extract *all*
+    # of the uuencoded files.
+
     for file in {gas/testsuite/gas,ld/ld,binutils/binutils}.{sum,log}
     do
 	if [ -f $file ]; then
@@ -996,7 +1075,6 @@ run_tests()
 
     tar cjf binutils-$target.tar.xz  binutils-$target-*.{sum,log}
     uuencode binutils-$target.tar.xz binutils-$target.tar.xz
-    rm -f binutils-$target.tar.xz    binutils-$target-*.{sum,log}
 
 %if %{with gold}
     if [ -f gold/testsuite/test-suite.log ]; then
@@ -1006,16 +1084,128 @@ run_tests()
     fi
 %endif
 
-    echo ================ $target == TEST RUN 2 =============================
+%if %{with crossbuilds}
+    # RHIVOS: Compare the native and cross runs.  This is not a fair
+    # comparison since the target architectures are different, but we only
+    # look for tests that PASS on one run and FAIL on the other.  Ie tests
+    # that are only run for one target are ignored.  As are UNSUPPORTED or
+    # UNTESTED tests.
 
-    # Run the tests and this time fail if there are any errors.
+    # NOTE: This check is basically redundant.  Since the build will fail if
+    # *any* of the testsuites produces a FAIL or XPASS result (see test run
+    # 2 below) the only way a discrepancy can get through is if a test that
+    # should be run is not actually run.  There is no way however that we can
+    # determine this fact without having a pre-computed list of must-be-run
+    # tests.
+
+    # We are only interested in the x86_64 cross AArch64 toolchain.
+    # Plus the code below assumes that the native checks have completed first
+    # and the logs are still present after the cross checks have been run.
+    if test x$native != x1 && test x$target = xaarch64-%{system}; then
+
+	local intro="RHIVOS: native vs cross comparison test"
+
+	echo "$intro: looking for tests that PASS in one build and FAIL in the other"
+
+        for cross_file in {gas/testsuite/gas,ld/ld,binutils/binutils}.sum
+        do
+	    local native_file=%{_builddir}/binutils-%{version}/build-%{_target_platform}/$cross_file
+
+	    if [ -f $cross_file ] && [ -f $native_file ]; then
+	        echo "$intro: comparing build-$target/$cross_file and build-%{_target_platform}/$cross_file"
+
+		# Confirm that the files are different
+	        if diff --report-identical-files $cross_file $native_file > /dev/null ; then
+		    echo "$intro: ERROR: $cross_file: results files are the same" ;
+		    # exit 1 ;
+		    continue ;
+		fi
+
+		# The command sequence below is intended to produce no results
+		# if the two test runs compare equally, but how can we be sure
+		# that there are no bugs in the logic ?  The answer is to add
+		# a known-bad result at the start with which to check that the
+		# sequence is working.  Note - we put the strings at the start
+		# of the file because if we place them at the end, the diff
+		# comparison algoirthm might view them as the removal of an
+		# old line and the addition of a new line, rather than a
+		# change in a single line.
+
+		echo "PASS: command sequence test" > cross.out
+		cat $cross_file >> cross.out
+		echo "FAIL: command sequence test" > native.out
+		cat $native_file >> native.out
+
+		# We then look for "command sequence test" in
+		# discrepancies.out.  If it is there and it is the only output
+		# then the test has passed.  If it is there but there is
+		# additional output then the test has failed and if the
+		# string is not present at all then the test is not working.
+
+		# Using --side-by-side puts the diffs on a single line, and
+		# when the diff is a change (rather than an addition or
+		# subtraction) then the two halves are separated by the |
+		# character.  So look for this, then look for lines that
+		# contain "FAIL | PASS" or "PASS | FAIL".  Also "XFAIL | PASS"
+		# should be allowed but "XFAIL | FAIL" should not.
+
+		diff --side-by-side cross.out native.out > diff.out || :
+		grep -e '|'     diff.out > changed-lines.out || :
+		grep -e "FAIL:" changed-lines.out > fails.out || :
+		grep -e "PASS:" fails.out > passes.out || :
+		grep -v -e "XFAIL:" passes.out > discrepancies.out || :		
+		grep -e "XFAIL:" changed-lines.out > xfails.out || :
+		grep -v -e "PASS:" -e "UNTESTED:" xfails.out > x-discrepancies.out || :
+
+		if grep -s -e "command sequence test" discrepancies.out > /dev/null ; then
+		   if grep -v -s -e "command sequence test" discrepancies.out ; then
+	               echo "$intro: $cross_file: FAILED - PASS/FAIL discrepancies exist" ;
+		       # FIXME: Strip "command sequence test" line from discrepancies.out.
+		       cat discrepancies.out ;
+		       exit 1 ;
+		   else
+		       if grep -e XFAIL x-discrepancies.out ; then
+			   echo "$intro: $cross_file: FAILED - XFAIL discrepancies exist" ;
+			   cat x-discrepancies.out ;
+			   exit 1 ;
+		       else
+			   echo "$intro: $cross_file: PASS - no discrepancies found" ;
+			   fi
+		   fi
+		else
+	            echo "$intro: $cross_file: ERROR: known-bad result string not found in output file" ;
+		    cat discrepancies.out ;
+		    cat diff.out ;
+		    exit 1 ;
+		fi
+
+		# Tidy up.
+		# rm -f *.out
+	    else
+		echo "$intro: ERROR: Missing test results file $cross_file and/or $native_file"
+	    fi
+	done
+    fi
+%endif
+
+    # Delete logs
+    rm -f binutils-$target.tar.xz binutils-$target-*.{sum,log} binutils-$target-gold.log.tar.xz
+
+    # Run the tests for a second time, this time allowing a failed test to
+    # stop the build.
+    #
+    # The "make check" commands here should be exactly the same as those for
+    # TEST RUN 1 except that we do not run the gold tests - they always fail.
+    #
+    # FIXME: We ought to be able to record the exit codes from the first
+    # test run and just examine them here, instead of rerunning the tests.
+
+    echo ================ $target == TEST RUN 2 =============================
 
     if test x$native == x1 ; then
 	make -k check-gas check-binutils check-ld < /dev/null
-	# Ignore the gold tests - they always fail
     else
-	# Do not try running linking tests for the cross-binutils.
-	make -k check-gas check-binutils < /dev/null
+	make -k check-gas check-binutils check-ld CC=$target-gcc CCX=$target-gcc < /dev/null
     fi
 
     popd
@@ -1317,25 +1507,35 @@ exit 0
 %files -f build-%{_target_platform}/binutils.lang
 
 %if %{with crossbuilds}
+
+%if %{build_cross_aarch64}
 %if "%{_target_platform}" != "aarch64-%{system}"
 %exclude /usr/aarch64-%{system}/*
 %exclude /usr/bin/aarch64-%{system}-*
 %endif
+%endif
 
+%if %{build_cross_ppc64le}
 %if "%{_target_platform}" != "ppc64le-%{system}"
 %exclude /usr/ppc64le-%{system}/*
 %exclude /usr/bin/ppc64le-%{system}-*
 %endif
+%endif
 
+%if %{build_cross_s390x}
 %if "%{_target_platform}" != "s390x-%{system}"
 %exclude /usr/s390x-%{system}/*
 %exclude /usr/bin/s390x-%{system}-*
 %endif
+%endif
 
+%if %{build_cross_x86_64}
 %if "%{_target_platform}" != "x86_64-%{system}"
 %exclude /usr/x86_64-%{system}/*
 %exclude /usr/bin/x86_64-%{system}-*
 %endif
+%endif
+
 %endif
 
 %license COPYING COPYING3 COPYING3.LIB COPYING.LIB
@@ -1436,11 +1636,20 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
-* Mon Nov 10 2025 Nick Clifton  <nickc@redhat.com> - 2.41-58.2
-- Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-126875)
+* Mon Jan 26 2026 Nick Clifton  <nickc@redhat.com> - 2.41-63
+- Run linker tests for cross binutils.  Compare the native and cross results.  (RHEL-117111)
 
-* Wed Nov 05 2025 Nick Clifton  <nickc@redhat.com> - 2.41-58.1
-- Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-125206)
+* Mon Jan 19 2026 Nick Clifton  <nickc@redhat.com> - 2.41-62
+- Fix a potential illegal memory access when copying a corrupt input file.  (RHEL-142279)
+
+* Tue Dec 16 2025 Nick Clifton  <nickc@redhat.com> - 2.41-61
+- Fix a potential illegal memory access when copying a corrupt input file.  (RHEL-132254)
+
+* Mon Nov 10 2025 Nick Clifton  <nickc@redhat.com> - 2.41-60
+- Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-126877)
+
+* Tue Nov 04 2025 Nick Clifton  <nickc@redhat.com> - 2.41-59
+- Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-125205)
 
 * Wed Aug 06 2025 Nick Clifton  <nickc@redhat.com> - 2.41-58
 - Remove workaround for CVE-2025-5702.  (RHEL-100159)
