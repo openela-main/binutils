@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.35.2
-Release: 67%{?dist}.1
+Release: 72%{?dist}
 License: GPLv3+
 URL: https://sourceware.org/binutils
 
@@ -537,6 +537,11 @@ Patch106: binutils-execstack-error-tests.patch
 #            input file.  PR 33457
 # Lifetime: Fixed in 2.46
 Patch107: binutils-CVE-2025-11083.patch
+
+# Purpose:  Stops a potential illegal memory access when copying a corrupt
+#            input file.  PR 33050
+# Lifetime: Fixed in 2.46
+Patch108: binutils-error-on-corrupted-group.patch
 
 #----------------------------------------------------------------------------
 
@@ -1397,8 +1402,17 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
-* Mon Nov 24 2025 Nick Clifton  <nickc@redhat.com> - 2.35.2-67.1
+* Mon Jan 19 2026 Nick Clifton  <nickc@redhat.com> - 2.35.2-72
+- Fix a potential illegal memory access when copying a corrupt input file.  (RHEL-142281)
+
+* Tue Dec 16 2025 Nick Clifton  <nickc@redhat.com> - 2.35.2-71
+- Fix a potential illegal memory access when copying a corrupt input file.  (RHEL-132287)
+
+* Tue Nov 11 2025 Nick Clifton  <nickc@redhat.com> - 2.35.2-69
 - Fix a potential illegal memory access when linking a corrupt input file.  (RHEL-126883)
+
+* Wed Sep 10 2025 Nick Clifton  <nickc@redhat.com> - 2.35.2-68
+- Add missing space to ppc476-shared2 linker test.  (RHEL-113842)
 
 * Tue Aug 19 2025 Nick Clifton  <nickc@redhat.com> - 2.35.2-67
 - Adds tests for the linker's --error-execstack and --error-rwx-segments command line options.  (RHEL-109970)

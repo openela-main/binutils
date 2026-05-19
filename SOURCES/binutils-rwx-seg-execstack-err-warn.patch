@@ -1809,7 +1809,7 @@ diff -rupN binutils.orig/ld/testsuite/ld-powerpc/ppc476-shared2.d binutils-2.35.
  
  DYNAMIC RELOCATION RECORDS
 -OFFSET   TYPE              VALUE 
-+OFFSET +TYPE +VALUE
++OFFSET +TYPE +VALUE.*
  0001000[02] R_PPC_ADDR16_LO   \.text\+0x00050000
  0002000[02] R_PPC_ADDR16_LO   \.text\+0x00050000
  0003000[02] R_PPC_ADDR16_LO   \.text\+0x00050000
