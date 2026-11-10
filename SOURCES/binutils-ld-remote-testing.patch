@@ -1,0 +1,328 @@
+From e47e870d46f38189f0e052acc7447923e7cf6c00 Mon Sep 17 00:00:00 2001
+From: "Maciej W. Rozycki" <macro@redhat.com>
+Date: Tue, 17 Feb 2026 10:42:47 +0000
+Subject: [PATCH] LD/testsuite: Implement target execution availability check
+
+Complementing `check_compiler_available' procedure for a compilation
+check implement `check_execution_available' that checks whether an
+executable built the same way can actually successfully run on the
+target.
+
+From 2e806738bdeca6ce5d65d69b12e9fb204629883f Mon Sep 17 00:00:00 2001
+From: "Maciej W. Rozycki" <macro@redhat.com>
+Date: Tue, 17 Feb 2026 10:42:47 +0000
+Subject: [PATCH] LD/testsuite: Enable execution with remote targets
+
+Lift target execution limitation from `run_ld_link_exec_tests' procedure
+and also handle remote targets, albeit in a restricted way, as follows.
+
+Numerous test cases have been written such that they refer to a shared
+library using a relative path, precluding the use of the runtime library
+search path for the dependency to be found at run time.  Consequently a
+test affected has to be run on the target such that the shared library
+required is present at the same relative path rooted at the program's
+current working directory.
+
+Additionally any shared library dependencies are not handled across the
+test suite in an organised way, so test invocations only have names of
+direct dependencies buried within the linker options supplied.
+
+Therefore assert that the linker test directory is located at the same
+absolute path both on the test host and the test target, typically via
+sharing the directory over NFS, and use the DejaGNU `remotedir' feature
+to start execution on the target with that location as the test case's
+current working directory.
+
+From 46c365a4c59eeed3fe6c51dea7963ea555fd5b45 Mon Sep 17 00:00:00 2001
+From: "Maciej W. Rozycki" <macro@redhat.com>
+Date: Tue, 17 Feb 2026 10:42:47 +0000
+Subject: [PATCH] LD/testsuite: Factor out compilation of a dummy executable
+
+There is a dummy executable compiled for the purpose of determining
+whether a target compiler is available that can produce a runnable
+program.  This is now going to be also used to determine whether a
+program produced this way can be executed on the target, so take the
+relevant pieces from `check_compiler_available' procedure and factor
+them out to `make_dummy_target_executable' procedure leaving the
+executable produced in place and returning its name upon successful
+compilation.  This executable needs to be discarded by the caller once
+no longer needed.  No functional change overall.
+---
+diff -rup binutils.orig/ld/testsuite/lib/ld-lib.exp binutils-2.41/ld/testsuite/lib/ld-lib.exp
+--- binutils.orig/ld/testsuite/lib/ld-lib.exp	2026-02-26 10:23:22.698379633 +0000
++++ binutils-2.41/ld/testsuite/lib/ld-lib.exp	2026-02-26 10:36:35.051785547 +0000
+@@ -721,6 +721,7 @@ proc run_ld_link_exec_tests { ldtests ar
+ 	set failed 0
+ 
+ 	if { ![check_compiler_available] } {
++	    verbose -log "run_ld_link_exec_tests: unsupported: compiler not available"
+ 	    unsupported $testname
+ 	    continue
+ 	}
+@@ -760,6 +761,7 @@ proc run_ld_link_exec_tests { ldtests ar
+ 	    }
+ 	}
+ 	if { $failed != 0 } {
++	    verbose -log "run_ld_link_exec_tests: unsupported: compilation failed"
+ 	    unsupported $testname
+ 	    continue
+ 	}
+@@ -800,27 +802,51 @@ proc run_ld_link_exec_tests { ldtests ar
+ 	    }
+ 	}
+ 
+-	if { $failed == 0 && [isnative] } {
+-	    send_log "Running: $binfile > $binfile.out\n"
+-	    verbose "Running: $binfile > $binfile.out"
+-	    catch "exec $binfile > $binfile.out" exec_output
++	# For remote targets this relies on the LD test subdirectory
++	# being identity mapped between the test host and the test
++	# target, e.g. mounted over NFS.  This is due to shared module
++	# dependencies using a relative path, which implies the need
++	# for execution to start in the same directory, arranged via
++	# the `remotedir' setting, the link has been made in.
++	if { $failed == 0 && [check_execution_available] } {
++	    global board_info
++
++	    set board [target_info name]
++	    if { [info exists board_info($board,remotedir)] } {
++		set remotedir board_info($board,remotedir)
++	    }
++	    set board_info($board,remotedir) [pwd]
++
++	    send_log "Running: $binfile\n"
++	    verbose "Running: $binfile"
++	    set result [remote_load target $binfile]
++	    set status [lindex $result 0]
++	    set exec_output [lindex $result 1]
+ 
+-	    if ![string match "" $exec_output] then {
+-		send_log "$exec_output\n"
+-		verbose "$exec_output" 1
+-		set failed 1
+-	    } else {
++	    if { $status == "pass" } {
++		set_file_contents $binfile.out $exec_output
+ 		send_log [file_contents $binfile.out]
+ 		verbose [file_contents $binfile.out] 2
+-		if [regexp_diff "$binfile.out" "$srcdir/$subdir/$expfile"] {
++		if [regexp_diff $binfile.out $srcdir/$subdir/$expfile] {
+ 		    set failed 1
+ 		}
++	    } else {
++		send_log "$exec_output\n"
++		verbose "$exec_output" 1
++		set failed 1
++	    }
++
++	    if { [info exists remotedir] } {
++		set board_info($board,remotedir) $remotedir
++	    } else {
++		unset board_info($board,remotedir)
+ 	    }
+ 	}
+ 
+ 	if { $failed != 0 } {
+ 	    fail $testname
+-	} elseif ![isnative] {
++	} elseif ![check_execution_available] {
++	    verbose -log "run_ld_link_exec_tests: unsupported: execution not possible"
+ 	    unsupported $testname
+ 	} else {
+ 	    set errcnt 0
+@@ -1202,6 +1228,42 @@ proc check_sysroot_available { } {
+     return $ld_sysroot_available_saved
+ }
+ 
++# Return a path to a dummy target executable if we can build one
++# or an empty string otherwise.
++proc make_dummy_target_executable { } {
++    global CC_FOR_TARGET
++
++    if { [which $CC_FOR_TARGET] == 0 } {
++	verbose -log "make_dummy_target_executable: fail: CC_FOR_TARGET not found"
++	return ""
++    }
++
++    set flags [get_board_flags]
++    set basename "tmpdir/compiler[pid]"
++    set src ${basename}.c
++    set output ${basename}.out
++    set f [open $src "w"]
++    puts $f "int main (void)"
++    puts $f "{"
++    puts $f "  return 0; "
++    puts $f "}"
++    close $f
++    if [is_remote host] {
++	set src [remote_download host $src]
++    }
++
++    set status [run_host_noleak "$CC_FOR_TARGET" "$flags $src -o $output"]
++    remote_file host delete $src
++    file delete $src
++    if { $status == 0 } {
++	remote_file host delete $output
++	verbose -log "make_dummy_target_executable: fail: compilation failed"
++	return ""
++    }
++
++    return $output
++}
++
+ # Return true if we can build a program with the compiler.
+ # On some targets, CC might be defined, but libraries and startup
+ # code might be missing or require special options that the ld test
+@@ -1209,40 +1271,48 @@ proc check_sysroot_available { } {
+ 
+ proc check_compiler_available { } {
+     global compiler_available_saved
+-    global CC_FOR_TARGET
+ 
+     if {![info exists compiler_available_saved]} {
+-	if { [which $CC_FOR_TARGET] == 0 } {
+-	    set compiler_available_saved 0
++	set compiler_available_saved 0
++
++	set binfile [make_dummy_target_executable]
++	if { $binfile != "" } {
++	    remote_file host delete $binfile
++	    set compiler_available_saved 1
++	}
++    }
++    return $compiler_available_saved
++}
++
++# Return true if we can run a program built with the compiler.
++proc check_execution_available { } {
++    global execution_available_saved
++
++    if { ![info exists execution_available_saved] } {
++	set execution_available_saved 0
++
++	if { ![check_compiler_available] } {
++	    verbose -log "check_execution_avaialbe: compiler not available"
+ 	    return 0
+ 	}
+ 
+-	set flags ""
+-	if [board_info [target_info name] exists cflags] {
+-	    append flags " [board_info [target_info name] cflags]"
+-	}
+-	if [board_info [target_info name] exists ldflags] {
+-	    append flags " [board_info [target_info name] ldflags]"
+-	}
+-
+-	set basename "tmpdir/compiler[pid]"
+-	set src ${basename}.c
+-	set output ${basename}.out
+-	set f [open $src "w"]
+-	puts $f "int main (void)"
+-	puts $f "{"
+-	puts $f "  return 0; "
+-	puts $f "}"
+-	close $f
+-	if [is_remote host] {
+-	    set src [remote_download host $src]
++	set binfile [make_dummy_target_executable]
++	if { $binfile == "" } {
++	    verbose -log "check_execution_avaialbe: could not make a dummy executable"
++	    return 0
+ 	}
+-	set compiler_available_saved [run_host_cmd_yesno "$CC_FOR_TARGET" "$flags $src -o $output"]
+-	remote_file host delete $src
+-	remote_file host delete $output
+-	file delete $src
++
++	set status [lindex [remote_load target $binfile] 0]
++	remote_file host delete $binfile
++	if { $status != "pass" } {
++	    verbose -log "check_execution_avaialbe: unable to delete test executable"
++	    return 0
++	}
++
++	set execution_available_saved 1
+     }
+-    return $compiler_available_saved
++
++    return $execution_available_saved
+ }
+ 
+ # Returns 1 if plugin is enabled in gcc.  Returns 0 otherwise.
+Only in binutils-2.41/ld/testsuite/lib: ld-lib.exp.orig
+Only in binutils-2.41/ld/testsuite/lib: ld-lib.exp.rej
+diff -rup fred/ld/testsuite/lib/ld-lib.exp binutils-2.41/ld/testsuite/lib/ld-lib.exp
+--- fred/ld/testsuite/lib/ld-lib.exp	2026-02-26 13:40:13.123209638 +0000
++++ binutils-2.41/ld/testsuite/lib/ld-lib.exp	2026-02-26 13:43:46.249201893 +0000
+@@ -191,6 +191,27 @@ proc is_endian_output_format { object_fl
+     }
+ }
+ 
++# Return flags as defined within board_info
++#
++proc get_board_flags {} {
++    global board_cflags
++    global board_ldflags
++
++    if [board_info [target_info name] exists cflags] {
++	set board_cflags " [board_info [target_info name] cflags]"
++    } else {
++	set board_cflags ""
++    }
++
++    if [board_info [target_info name] exists ldflags] {
++	set board_ldflags " [board_info [target_info name] ldflags]"
++    } else {
++	set board_ldflags ""
++    }
++
++    return "$board_cflags $board_ldflags"
++}
++
+ # Link a program using ld
+ #
+ proc default_ld_link { ld target objects } {
+@@ -202,6 +223,17 @@ proc default_ld_link { ld target objects
+ 	set flags [big_or_little_endian]
+     }
+ 
++    # When using GCC as the linker driver, we need to specify board cflags when
++    # linking because cflags may contain linker options.  For example when
++    # linker options are included in GCC spec files then we need the -specs
++    # option.
++    set gccexe [string replace $ld 0 [string last "/" $ld] ""]
++    if {[string match "*cc*" $gccexe] ||
++	[string match "*++*" $gccexe] ||
++	[string match "clang*" $gccexe]} then {
++	set flags "$flags [get_board_flags]"
++    }
++
+     remote_file host delete $target
+     set exec_output [run_host_cmd "$ld" "$flags -o $target $objects"]
+     set exec_output [prune_warnings $exec_output]
+diff -rup fred/ld/testsuite/lib/ld-lib.exp binutils-2.41/ld/testsuite/lib/ld-lib.exp
+--- fred/ld/testsuite/lib/ld-lib.exp	2026-02-26 13:59:40.813652711 +0000
++++ binutils-2.41/ld/testsuite/lib/ld-lib.exp	2026-02-26 13:59:43.943009327 +0000
+@@ -165,6 +165,22 @@ proc run_host_cmd_yesno { prog command }
+     return 0;
+ }
+ 
++proc run_host_noleak { prog command } {
++    global env
++    if [info exists env(ASAN_OPTIONS)] {
++	set old_asan "$env(ASAN_OPTIONS)"
++    }
++    # don't fail the test due to gcc plugin or ld memory leaks
++    set env(ASAN_OPTIONS) "detect_leaks=0"
++    set result [run_host_cmd_yesno "$prog" "$command"]
++    if [info exists old_asan] {
++	set env(ASAN_OPTIONS) "$old_asan"
++    } else {
++	unset env(ASAN_OPTIONS)
++    }
++    return $result
++}
++
+ # Link an object using relocation.
+ #
+ proc default_ld_relocate { ld target objects } {

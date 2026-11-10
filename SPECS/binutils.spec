@@ -2,7 +2,7 @@
 Summary: A GNU collection of binary utilities
 Name: binutils%{?_with_debug:-debug}
 Version: 2.41
-Release: 63%{?dist}
+Release: 65%{?dist}
 License: GPL-3.0-or-later AND (GPL-3.0-or-later WITH Bison-exception-2.2) AND (LGPL-2.0-or-later WITH GCC-exception-2.0) AND BSD-3-Clause AND GFDL-1.3-or-later AND GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.0-or-later
 URL: https://sourceware.org/binutils
 
@@ -401,6 +401,29 @@ Patch64: binutils-CVE-2025-11083.patch
 #            input file.  PR 33050
 # Lifetime: Fixed in 2.46
 Patch65: binutils-error-on-corrupted-group.patch
+
+# Purpose:  Improves the linker testsuite's ability to run remote tests
+# Lifetime: Fixed in 2.46
+Patch66: binutils-ld-remote-testing.patch
+
+# Purpose:  Fix GprofNG sources so that they will compile with GCC version 15.
+# Lifetime: Fixed in 2.46
+Patch67: binutils-gprofng-gcc15-fixes.patch
+
+# Purpose:  Add missing tests of AArch64 instructions to the assembler testsuite.
+# Lifetime: Fixed in 2.45
+Patch68: binutils-AArch64-missing-assembler-tests-1.patch
+Patch69: binutils-AArch64-missing-assembler-tests-2.patch
+Patch70: binutils-AArch64-missing-assembler-tests-3.patch
+Patch71: binutils-AArch64-missing-assembler-tests-4.patch
+Patch72: binutils-AArch64-missing-assembler-tests-5.patch
+Patch73: binutils-AArch64-missing-assembler-tests-6.patch
+Patch74: binutils-AArch64-missing-assembler-tests-7.patch
+Patch75: binutils-AArch64-missing-assembler-tests-8.patch
+Patch76: binutils-AArch64-missing-assembler-tests-9.patch
+Patch77: binutils-AArch64-missing-assembler-tests-10.patch
+Patch78: binutils-AArch64-missing-assembler-tests-11.patch
+Patch79: binutils-AArch64-missing-assembler-tests-12.patch
 
 #----------------------------------------------------------------------------
 
@@ -1636,6 +1659,12 @@ exit 0
 
 #----------------------------------------------------------------------------
 %changelog
+* Mon Mar 16 2026 Nick Clifton  <nickc@redhat.com> - 2.41-65
+- Add missing tests of AArch64 instructions to the assembler testsuite.  (RHEL-155043)
+
+* Thu Feb 26 2026 Nick Clifton  <nickc@redhat.com> - 2.41-64
+- Improve the linker testsuite's ability to run remote tests.  (RHEL-151495)
+
 * Mon Jan 26 2026 Nick Clifton  <nickc@redhat.com> - 2.41-63
 - Run linker tests for cross binutils.  Compare the native and cross results.  (RHEL-117111)
 
